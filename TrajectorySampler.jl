@@ -1,5 +1,27 @@
 using ITensors
 using Optim
+using Distributed
+include("Functions.jl")
+include("TEData.jl")
+
+function dict_invert(d_in::Array{Dict{String,Any},1})::Dict{String,Any}
+    ks = keys(d_in[1])
+    N = length(d_in)
+    
+    # initialize
+    d_return = Dict(name =>[] for name in ks)
+    
+    for d_sample in d_in
+        for key in ks
+            push!(d_return[key], d_sample[key] )
+        end
+    end
+    
+    #d_return = Dict(name => hcat(d_return[name]) for name in ks)
+    
+    return d_return
+end
+
 
 function collect_jump_probabilities(
         psi::MPS, 
@@ -87,7 +109,7 @@ function select_and_apply_jumps!(
      
     if optimal
         # random offset of mixing 2x2
-        offset = mod( rand(Int), 2 )
+        offset = mod( rand(Int64), 2 )
         L = length(psi)
         
         # check boundaries and apply jumps
@@ -100,7 +122,8 @@ function select_and_apply_jumps!(
         normalize!(psi)
         
         # loop through chain, per two sites, starting from offset (c_i and c_{i+1} will be mixed)
-        for i in (offset+1):2:(L-1)
+        iter = mod(rand(Int64), 2)==0 ? ((offset+1):2:(L-1)) : reverse((offset+1):2:(L-1))
+        for i in iter
             orthogonalize!(psi,i)
             # two jumps
             if pc[i]*pc[i+1] > rand(Float64)
@@ -116,7 +139,6 @@ function select_and_apply_jumps!(
             normalize!(psi)
         end
         
-    println(pc[1])   
     else # just do direct jumps
         for (i,p) in enumerate(pc)
             if p > rand(Float64)
@@ -131,70 +153,46 @@ function select_and_apply_jumps!(
         
 end
 
-function collect_data(psi::MPS, track_entropy::Bool, track_observables::Vector{String})
-    data_t = Dict()
+function collect_properties(
+        psi;
+        d_tracks::Dict{String,Any}=Nothing
+        )::Dict{String,Any}
     
-    if track_entropy
-        data_t["S"] = entropy_profile(psi)
+    if dict_tracks == Nothing:
+        d_tracks = Dict{"track_states" => false, "track_maxdim" => true, "track_entropy" => true, "track_local_observables" => String[]}
+
+    data = Dict()
+    if d_tracks["track_states"]
+        data["psi"] = psi
+    end
+    if d_track["track_maxdim"]
+        data["maxdim"] = maxlinkdim(psi)
     end
     
-    if length(track_observables) != 0
-        for obs in track_observables
-            data_t[obs] = expect(psi, obs)
+    if d_track["track_entropy"]
+        data["S"] = entropy_profile(psi)
+    end
+    
+    if length(d_track["track_local_observables"]) != 0
+        for obs in track_local_observables
+            data[obs] = expect(psi, obs)
         end
     end
     
-    return data_t
+    return data
 end
             
-            
-        
-    
-function sample_trajectory(
-        psi::MPS,
-        ted::TE_data,
-        v_t::Array{Float64,1};
-        optimal::Bool=false,
-        track_states::Bool=false, 
-        track_entropy::Bool=true, 
-        track_local_observables::Vector{String}=String[])
-    
-    # time step for data collection
-    tau = v_t[2]-v_t[1]
+function sample_time_step(
+        psi::MPS, # state coming in
+        ted::TE_data, # data for time evolution
+        tau::Float64; # time to integrate
+        optimal::Bool=false) # run optimal trajectory)
     
     # time step for numerical integration
     dt = ted.dt
     
-    # final time
-    t_end = maximum(v_t)
-    
-    # initialize to store data
-    data = Dict()
-    if track_states
-        data["psi"] = MPS[]
-    end
-    if track_entropy
-         data["S"] = zeros((length(v_t),length(psi)+1))
-    end
-    if length(track_local_observables) != 0
-        for obs in track_local_observables
-            data[obs] = zeros( (length(v_t),length(psi)) )
-        end
-    end
-    
-    # collect data initial states
-    if track_states
-        push!(data["psi"], psi)
-    end
-    data_t = collect_data(psi, track_entropy, track_observables)
-    for obs in keys(data_t)
-        data[obs][1,:] = data_t[obs]
-    end
-    
     t_evolve = 0.
-    t_next = v_t[2]
-    ind_collect = 2
-    while t_evolve < t_end-dt/2.
+    while t_evolve < tau - dt/2.
         # apply Hamiltonian evolution
         psi = apply(ted.H_gates, psi; ted.cutoff, ted.maxdim)
         normalize!(psi)
@@ -202,32 +200,111 @@ function sample_trajectory(
         # select and apply jumps
         psi = select_and_apply_jumps!(ted, psi; optimal)
         t_evolve += dt
-        
-        if t_evolve >= t_next-1E-4
-        
-            # store data in dictionary
-            if track_states
-                push!(data["psi"], psi)
-            end
-            data_t = collect_data(psi, track_entropy, track_observables)
-            for obs in keys(data_t)
-                data[obs][ind_collect,:] = data_t[obs]
-            end
-            
-            # for next data collection
-            ind_collect += 1
-            if !(ind_collect > length(v_t)  )
-                t_next = v_t[ind_collect]
-            end
-        end
-        
-        
-        
     end
     
-    return data
+    return psi
 end
 
+function sample_trajectory(
+    ted::TEData,
+    psi::MPS,
+    t_end::Float64,
+    tau::Float64,
+    optimal::Bool;
+    d_tracks::Dict{String, Any}=Nothing,
+    verbose::Int64=1,
+    parallel_step=false,
+    n_samples::Int64=Nothing
+    )::Dict{String,Any}
+    
+    # function to calculta one time step and collect results
+    @everywhere function step_and_collect(psi, result_list)
+        psi = sample_time_step(psi, ted, tau; 
+            optimal=optimal)
+        result = collect_properties(psi; d_tracks)
+            
+        push!(result_list, result)
+        return psi
+    end
+    
+    # set default value n_sample to number of threads
+    if n_samples == Nothing
+        n_sample = Threads.nthreads()
+    end
+    
+    # number of time steps
+    n_steps = Int64(ceil(t_end / tau))
+    
+    # time evolution and sample 
+    if verbose > 0
+        println("start time evolution...")
+    end
+    
+    if !parallel_steps
+    
+        @everywhere get_trajectory(psi)
+            result_list = Dict{String,Any}[]
+            
+            # first collection
+            result = collect_properties(psi; d_tracks)
+            push!(result_list, result)
+            
+            # initial state
+            for i in 1:n_steps
+                psi = step_and_collect(psi, result_list)
+                
+                # output
+                if verbose > 0
+                    println("Step $(i)/$(n_steps) obtained")
+                end
+            end
+            
+            # output
+            if verbose > 0
+                println("done")
+            end
+            return dict_invert(result_list)   
+    
+        sample_results = pmap(1:n_samples) do _
+           result = get_trajectory
+       end
+    
+    else
+        @everywhere sample_results = Dict{String,Any}[][]
+        
+        # intitialize and collect first state properties
+        v_psi = MPS[]
+        for i in 1:n_samples
+            v_psi[i] = psi
+            push!(sample_results[i], collect_properties(psi; d_tracks))
+        end
+        
+        for i in 1:n_step
+            @distributed for i in 1:n_samples
+                v_psi[i] = step_and_collect(v_psi[i], sample_results[i])
+            end
+            if verbose > 0
+                println("Step $(i)/$(n_steps) obtained")
+            end
+        end
+        if verbose > 0
+            println("done")
+        end
+        
+    end
+
+    return sample_results
 
 
+
+
+        
+
+        
+        
+        
+        
+        
+        
+        
 

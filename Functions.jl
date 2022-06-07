@@ -1,3 +1,5 @@
+
+
 using ITensors
 
 function entropy_von_neumann!(psi::MPS, b::Int64)
@@ -10,13 +12,14 @@ function entropy_von_neumann!(psi::MPS, b::Int64)
     _,S = svd(psi[b], (linkind(psi, b-1), s[b]))
     SvN = 0.0
     for n in 1:dim(S, 1)
-        p = S[n,n]^2
+        p = S[n,n]^2 + 1E-7
         SvN -= p * log(p)
     end
 
     return SvN
 
 end
+
 
 function entropy_profile(psi::MPS)::Vector{Float64}
     N = length(psi)
@@ -26,7 +29,6 @@ function entropy_profile(psi::MPS)::Vector{Float64}
     end
     return S
 end
-
 
 function CdC(C::ITensor)::MPO
     Cd = replaceprime(dag(C), 0 => 2 )

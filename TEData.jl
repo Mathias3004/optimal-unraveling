@@ -91,11 +91,3 @@ function get_c(gamma::Float64, dissipation::String, s::Vector{<:Index}, dt::Floa
     return c_gates, cdc_gates, Hcdc_gates
 end
 
-
-
-
-
-
-
-
-    
