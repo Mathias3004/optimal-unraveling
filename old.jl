@@ -153,3 +153,34 @@ end
     # parallel process and collect data
     
     print("Done!")
+    
+        var_keys = vcat(["maxdim"], track_local_observables)
+    if track_entropy
+        var_keys = vcat(["S"],var_keys)
+    end
+    
+    # from here for stepwise parallel
+    
+        else
+     #=   @everywhere sample_results = Dict{String,Any}[][]
+        @everywhere v_psi = MPS[]
+        
+        # intitialize and collect first state properties
+        for i in 1:n_samples
+            v_psi[i] = psi
+            push!(sample_results[i], collect_properties(psi; d_tracks))
+        end
+        
+        for i in 1:n_step
+            @distributed for i in 1:n_samples
+                v_psi[i] = step_and_collect(v_psi[i], sample_results[i])
+            end
+            if verbose > 0
+                println("Step $(i)/$(n_steps) obtained")
+            end
+        end
+        if verbose > 0
+            println("done")
+        end =#
+        
+    end

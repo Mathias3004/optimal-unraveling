@@ -2,7 +2,7 @@
 
 using ITensors
 
-function entropy_von_neumann!(psi::MPS, b::Int64)
+function entropy_von_neumann!(psi::MPS, b::Int64)::Float64
     s = siteinds(psi)  
     if b < 1 || b >= length(psi)
         return 0.
