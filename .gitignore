@@ -25,5 +25,5 @@ Manifest.toml
 
 # ignore this directory
 /shit
-/store
+/store*
 *.txt
