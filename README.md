@@ -1,6 +1,11 @@
 # optimal-unraveling
 Optimize stochastic quantum trajectories (minimal entanglement) by applying unitary transformation of jump operators
 
+* cd to directory and make dir to store data
+```
+mkdir store_XXZ
+```
+
 * Open Julia REPL with number of threads you want and have available
 ```
 julia -p nthreads
