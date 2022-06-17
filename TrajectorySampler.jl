@@ -1,6 +1,6 @@
 module TrajectorySampler
 
-export TE_data, sample_time_step, collect_properties, dump_data
+export TE_data, step_and_collect, dump_data
 
 using ITensors 
 using Optim
@@ -23,6 +23,22 @@ struct TE_data
     
     cutoff::Float64 # minimal sv
     maxdim::Int64 # maximal bond dim
+end
+
+function step_and_collect(
+    psi::MPS,
+    ted::TE_data,
+    tau::Float64, 
+    optimal::Bool,
+    d_tracks::Dict{String,Any}
+    )::Tuple{MPS,Dict{String,Any}}
+    """Exported function: evolve psi over time tau using ted, optimized or not, 
+    and collect data as specified in d_tracks. Return new state psi and dict of results."""
+    
+    psi = sample_time_step(psi, ted, tau; 
+        optimal=optimal)
+    result = collect_properties(psi; d_tracks)
+    return psi, result
 end
 
 function collect_jump_probabilities(

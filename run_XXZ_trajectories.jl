@@ -2,6 +2,7 @@ using ITensors
 using Statistics
 using Revise
 using Distributed
+using Printf
 
 include("ParallelTrajectorySampler.jl")
 
@@ -85,36 +86,134 @@ function collect_data_XXZ(
     gamma::Float64, 
     optimal::Bool, 
     t_end::Float64; 
+    dissipation::String = "Sz",
     h::Float64=0.,
     tau::Float64=1.,
     dt::Float64=0.1,
+    d_tracks::Dict{String,Any}=Nothing,
+    d_controls::Dict{String,Any}=Nothing,
     verbose::Int64=1,
+    pre="store_XXZ/dat_",
+    append=false
     )
 
-    dissipation = "Sz"
-
-    maxdim = 700
-    cutoff = 1E-8
+    # MPS controls
+    if d_controls == Nothing
+        maxdim = 700
+        cutoff = 1E-8
+        conserve_qns = true
+    else
+        maxdim = d_controls["maxdim"]
+        cutoff = d_controls["cutoff"]
+        conserve_qns = d_controls["conserve_qns"]
+    end
     
-    d_tracks = Dict(
-        "track_states" => false,
-        "track_maxdim" => true,
-        "track_entropy" => true,
-        "track_local_observables" => ["Sz"]
-    )
-
-
+    # time array for data collection
     v_t = Array((0.: tau: t_end))
     
-    # prepare TE
+    # prepare H and c's for time evolution XXZ model
     params = XXZ_data(N, Jx, Jz, h, gamma, dissipation)
-    ted = TE_data_XXZ(params, dt; maxdim=maxdim, cutoff=cutoff, conserve_qns=true)
+    ted = TE_data_XXZ(params, dt; maxdim=maxdim, cutoff=cutoff, conserve_qns=conserve_qns)
 
     # set initial state to half filling
     psi = productMPS(ted.s, n-> isodd(n) ? "Up" : "Dn")
     
-    collect_trajectories_synchronized(ted, psi, t_end, tau, optimal; d_tracks=d_tracks, pre="store_XXZ/dat_")
+    # sample trajectories on parallel threads, sync after each time step
+    collect_trajectories_synchronized(ted, psi, t_end, tau, optimal; d_tracks=d_tracks, pre=pre, append=append)
 end
+
+######## MAIN ################
+
+
+function main()
+
+    # define parameters
+    
+    N = 10 # number of sites
+    Jx = 1. # Jx coupling (flip flop)
+    Jz = 1. # Jz coupling (dipole-dipole)
+    h = 0. # magnetic field
+    dissipation = "Sz" # the type of dissipation
+    gamma = 10. # dissipation rate
+    
+    t_end = 20. # the total time to evolve
+    tau = 1. # the time step to collect data
+    dt = 0.1 # differential time step for integration
+    
+    pre_store = "store_XXZ/dat_" # the folder + prefix where to store data
+    
+    n_runs = 2 # number of times you want to generate the same trajectories. Each run nworkers samples are collected and saved
+    
+    # variables to track and save
+    d_tracks = Dict{String,Any}(
+        "track_states" => false, # whether to save all the sampled states (better not for memory!)
+        "track_maxdim" => true, # track maxdim in MPS
+        "track_entropy" => true, # save entropy profile at each time step
+        "track_local_observables" => ["Sz"] # profile of local observables to to save at each time step
+    )
+    
+    # controls for MPS
+    d_controls = Dict{String,Any}(
+        "maxdim" => 700, # max bond dim during simulation
+        "cutoff" => 1E-8, # sv cutoff
+        "conserve_qns" => true # U(1) symmetry from particle conservation (e.g. with Sz dissipation) or not, more efficient simulation
+    )
+    
+    # run parallel trajectories on number of available workers and loop over number of runs to collect
+    for i_n = 1:n_runs
+        println("\nCollecting run $(i_n)/$(n_runs):\n")
+        append = i_n != 1 # set first run to write (start new files), append to files in next runs to collect more samples
+
+        println("Optimized dissipation:")
+        optimal = true
+        pre = pre_store * @sprintf("_opt_N_%.0f_Jx_%.2f_Jz_%.2f_gamma_%.2f", N, Jx, Jz, gamma) # prefix to store the data in txt file, will be "_it_
+        collect_data_XXZ(
+            N, 
+            Jx,
+            Jz, 
+            gamma, 
+            optimal, 
+            t_end; 
+            dissipation=dissipation,
+            h=h,
+            tau=tau,
+            dt=dt,
+            pre=pre,
+            d_tracks=d_tracks,
+            d_controls=d_controls,
+            verbose=1,
+            append=append
+        )
+        
+        println("Local dissipation:")
+        optimal = false
+        pre = pre_store * @sprintf("_loc_N_%.0f_Jx_%.2f_Jz_%.2f_gamma_%.2f", N, Jx, Jz, gamma) # to store
+        collect_data_XXZ(
+            N, 
+            Jx,
+            Jz, 
+            gamma, 
+            optimal, 
+            t_end; 
+            dissipation=dissipation,
+            h=h,
+            tau=tau,
+            dt=dt,
+            pre=pre,
+            d_tracks=d_tracks,
+            d_controls=d_controls,
+            verbose=1,
+            append=append
+        )
+    end
+    
+end
+
+# set main() as standard function to run if not specified otherwise
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end
+    
 
 
 

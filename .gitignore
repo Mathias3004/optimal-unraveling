@@ -23,7 +23,9 @@ docs/site/
 # environment.
 Manifest.toml
 
-# ignore this directory
+# ignore this
+old.jl
 /shit
-/store*
+
+# ignore all data .txt files
 *.txt

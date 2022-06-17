@@ -28,31 +28,22 @@ function collect_trajectories_synchronized(
     verbose: verbose output or not
     n_samples: number of MC trajectory samples, default set to number of threads available (keep it that way, otherwise you compute nthreads samples and only store n_sample < nthreads)
     pre: prefix .txt file to save data
-    append: whether to append results to previously obtained samples (already existing text file). Default is overwrite
+    append: whether to append results to previously obtained samples (already existing text files). Default is overwrite
     """
     
-    # local function to calculte one time step and collect results, defined on all threads
-    function step_and_collect(psi::MPS)::Tuple{MPS,Dict{String,Any}}
-        psi = sample_time_step(psi, ted, tau; 
-            optimal=optimal)
-        result = collect_properties(psi; d_tracks)
-        return psi, result
-    end
-    
-        # set default value n_sample to number of threads
+    # set default value n_sample to number of workers
     if n_samples < 0
         n_samples = nworkers()
     end
     
-    # copy data on all threads
+    # copy relevant data to all workers
     @sync @everywhere begin
         psi_l = $(psi)
-        d_tracks_l = $(d_tracks)
-        step_and_collect = $(step_and_collect)
-        #optimal = $(optimal)
-        #d_tracks = $(d_tracks)
+        ted = $(ted)
+        tau = $(tau)
+        optimal = $(optimal)
+        d_tracks = $(d_tracks)
         pre = $(pre)
-        #dat_coll = collect_properties(psi_l; d_tracks=d_tracks_l)
     end
         
     # number of time steps
@@ -60,36 +51,47 @@ function collect_trajectories_synchronized(
     
     # time evolution and sample 
     if verbose > 0
-        println("start time evolution of $(n_steps) steps to collect $(n_samples) samples using $(nworkers()) workers...")
+        println("\nStart time evolution of $(n_steps) steps to collect $(n_samples) samples using $(nworkers()) workers")
     end
 
     # loop over all time steps to collect
     for i in 1:n_steps
         
         # update psi on all threads and collect data, prepare prefix for data saving
+        if verbose > 0
+            print("\nStep $(i)/$(n_steps)...\t")
+        end
         @sync @everywhere begin
-            psi_l, dat_coll = step_and_collect(psi_l)
+            psi_l, dat_coll = step_and_collect(psi_l, ted, tau, optimal, d_tracks)
             prefix = pre * "_it_" * string($(i))
-            println("done")
+            if $verbose > 1
+                println("step evaluated")
+            end
         end
         
         # save data from time step, keep order of processes
-        for ip in 1:n_samples
+        if verbose > 0
+            print("dumping data...\t")
+        end
+        for ip in workers()
+            # check whether to append or not (only first worker worker, the rest is always mode)
+            if ip==workers()[1] && !append
+                write_append = "w"
+            else
+                write_append = "a"
+            end
+            
             @everywhere if $(ip) == myid()
-                if $(ip)==1 && !$(append)
-                    dump_data(dat_coll, prefix, write_append="w")
-                else
-                    dump_data(dat_coll, prefix, write_append="a")
-                end
+                dump_data(dat_coll, prefix, write_append=$(write_append) )
             end
         end
 
         if verbose > 0
-            println("Step $(i)/$(n_steps) obtained")
+            print("done")
         end
     end
     if verbose > 0
-        println("done")
+        println("\n\nAll steps obtained!\n")
     end
 
 end
