@@ -4,8 +4,6 @@ using Revise
 using Distributed
 using Printf
 
-include("ParallelTrajectorySampler.jl")
-
 struct XXZ_data
     N::Int64
     Jx::Float64
@@ -129,16 +127,16 @@ function main()
 
     # define parameters
     
-    N = 10 # number of sites
-    Jx = 1. # Jx coupling (flip flop)
-    Jz = 1. # Jz coupling (dipole-dipole)
+    N = 20 # number of sites
+    Jx = -1. # Jx coupling (flip flop)
+    Jz = 0. # Jz coupling (dipole-dipole)
     h = 0. # magnetic field
     dissipation = "Sz" # the type of dissipation
-    gamma = 10. # dissipation rate
+    gamma = 3. # dissipation rate
     
     t_end = 20. # the total time to evolve
     tau = 1. # the time step to collect data
-    dt = 0.1 # differential time step for integration
+    dt = 0.05 # differential time step for integration
     
     pre_store = "store_XXZ/dat_" # the folder + prefix where to store data
     
@@ -211,6 +209,8 @@ end
 
 # set main() as standard function to run if not specified otherwise
 if abspath(PROGRAM_FILE) == @__FILE__
+    @everywhere push!(LOAD_PATH,".")
+    include("ParallelTrajectorySampler.jl")
     main()
 end
     
