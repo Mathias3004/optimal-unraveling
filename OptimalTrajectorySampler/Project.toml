@@ -1,0 +1,9 @@
+name = "OptimalTrajectorySampler"
+uuid = "6310d005-e661-4fed-8609-c8b72cbbc97e"
+authors = ["Mathias3004 <mathiasvanregemortel@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+ITensors = "9136182c-28ba-11e9-034c-db9fb085ebd5"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"

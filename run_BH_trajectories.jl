@@ -4,58 +4,59 @@ using Revise
 using Distributed
 using Printf
 
-struct XXZ_data
+struct BH_data
     N::Int64
-    Jx::Float64
-    Jz::Float64
-    h::Float64
+    J::Float64
+    V::Float64
+    V2::Float64
     gamma::Float64
     dissipation::String
 end
     
     
 
-function TE_data_XXZ(params::XXZ_data, dt::Float64; cutoff::Float64=1E-8, maxdim::Int64=300,conserve_qns::Bool=true)::TE_data
+function TE_data_BH(params::BH_data, dt::Float64; cutoff::Float64=1E-8, maxdim::Int64=300,conserve_qns::Bool=true, dim::Int64=2)::TE_data
 
-    s = siteinds("S=1/2", params.N; conserve_qns=conserve_qns)
+    s = siteinds("Qudit", params.N; conserve_qns=conserve_qns, dim=dim)
     
-    H_gates = get_H_XXZ(params.Jx, params.Jz, params.h, s, dt)
+    H_gates = get_H_BH(params.J, params.V, params.V2, s, dt)
     c_gates, cdc_gates, Hcdc_gates = get_c(params.gamma, params.dissipation, s, dt)
     
     return TE_data(s, H_gates, c_gates, cdc_gates, Hcdc_gates, dt, cutoff, maxdim)
 end
 
 # prepare H gates
-function get_H_XXZ(Jx::Float64, Jz::Float64, h::Float64, s::Vector{<:Index}, dt::Float64)::Array{ITensor,1}
+function get_H_BH(J::Float64, V::Float64, V2::Float64, s::Vector{<:Index}, dt::Float64)::Array{ITensor,1}
     
     N = length(s)
     H_gates = ITensor[]
 
-    # XXZ interaction
+    # tunneling and nearest neighbor interaction
     for j in 1:(N-1)
         s1 = s[j]
         s2 = s[j + 1]
-        hj = Jz*op("Sz", s1) * op("Sz", s2) +
-             0.5*Jx *  (op("S+", s1) * op("S-", s2) + op("S-", s1) * op("S+", s2) )
-
+        hj = 0.5*J *  (op("adag", s1) * op("a", s2) + op("a", s1) * op("adag", s2) )
+            + V*op("n", s1) * op("n", s2) 
         Gj = exp(-im * dt/2. * hj)
         push!(H_gates, Gj)
     end
     
-    append!(H_gates, reverse(H_gates))
-    
-    # Sx field
-    if abs(h) > 1E-4
-        for s1 in s
-            hj = -h * op( "Sx", s1)
-            Gj = exp(-im * dt * hj)
+    # next nearest neighbor interaction
+    if abs(V2) > 1E-4
+        for j in 1:(N-2)
+            hj = V2 * op("n", s[j]) * op("n", s[j+2])
+            Gj = exp(-im * dt/2. * hj)
             push!(H_gates, Gj)
-            
         end
     end
+    
+    # add reverse array to have time step dt
+    append!(H_gates, reverse(H_gates))
+    
     return H_gates
 end
 
+# array of dissipation operators
 function get_c(gamma::Float64, dissipation::String, s::Vector{<:Index}, dt::Float64)
     N = length(s)
     
@@ -77,21 +78,21 @@ end
 
 
 # function to prepare TE data from input
-function collect_data_XXZ(
+function collect_data_BH(
     N::Int64, 
-    Jx::Float64,
-    Jz::Float64, 
+    J::Float64,
+    V::Float64, 
     gamma::Float64, 
     optimal::Bool, 
     t_end::Float64; 
     dissipation::String = "Sz",
-    h::Float64=0.,
+    V2::Float64=0.,
     tau::Float64=1.,
     dt::Float64=0.1,
     d_tracks::Dict{String,Any}=Nothing,
     d_controls::Dict{String,Any}=Nothing,
     verbose::Int64=1,
-    pre="store_XXZ/dat_",
+    pre="store_BH/dat_",
     append=false
     )
 
@@ -110,11 +111,11 @@ function collect_data_XXZ(
     v_t = Array((0.: tau: t_end))
     
     # prepare H and c's for time evolution XXZ model
-    params = XXZ_data(N, Jx, Jz, h, gamma, dissipation)
-    ted = TE_data_XXZ(params, dt; maxdim=maxdim, cutoff=cutoff, conserve_qns=conserve_qns)
+    params = BH_data(N, J, V, V2, gamma, dissipation)
+    ted = TE_data_BH(params, dt; maxdim=maxdim, cutoff=cutoff, conserve_qns=conserve_qns)
 
     # set initial state to half filling
-    psi = productMPS(ted.s, n-> isodd(n) ? "Up" : "Dn")
+    psi = productMPS(ted.s, n-> isodd(n) ? "1" : "0")
     
     # sample trajectories on parallel threads, sync after each time step
     collect_trajectories_synchronized(ted, psi, t_end, tau, optimal; d_tracks=d_tracks, pre=pre, append=append)
@@ -129,19 +130,19 @@ function main(args_in)
     # command line input
     N = parse(Int64, args_in[1])
     gamma = parse(Float64, args_in[2])
-    Jz = parse(Float64, args_in[3]) # Jz coupling (dipole-dipole)
-    h = parse(Float64, args_in[4]) # magnetic field
+    V = parse(Float64, args_in[3]) # Jz coupling (dipole-dipole)
+    V2 = parse(Float64, args_in[4]) # magnetic field
     dir = args_in[5]
     
     # fixed params
-    Jx = -1. # Jx coupling (flip flop)
-    dissipation = "Sz" # the type of dissipation
+    J = 1. # Jx coupling (flip flop)
+    dissipation = "n" # the type of dissipation
     
     t_end = 20. # the total time to evolve
     tau = 1. # the time step to collect data
     dt = 0.05 # differential time step for integration
     
-    pre_store = "store_XXZ/dat_" # the folder + prefix where to store data
+    pre_store = dir * "/dat_" # the folder + prefix where to store data
     
     n_runs = 2 # number of times you want to generate the same trajectories. Each run nworkers samples are collected and saved
     
@@ -150,7 +151,7 @@ function main(args_in)
         "track_states" => false, # whether to save all the sampled states (better not for memory!)
         "track_maxdim" => true, # track maxdim in MPS
         "track_entropy" => true, # save entropy profile at each time step
-        "track_local_observables" => ["Sz"] # profile of local observables to to save at each time step
+        "track_local_observables" => ["n"] # profile of local observables to to save at each time step
     )
     
     # controls for MPS
@@ -168,16 +169,16 @@ function main(args_in)
         # using 2x2 optimized jump clicks
         println("Optimized dissipation:")
         optimal = true
-        pre = pre_store * @sprintf("_opt_N_%.0f_Jx_%.2f_Jz_%.2f_gamma_%.2f", N, Jx, Jz, gamma) # prefix to store the data in txt file, will be "_it_
-        collect_data_XXZ(
+        pre = pre_store * @sprintf("_opt_N_%.0f_J_%.2f_V_%.2f_gamma_%.2f", N, J, V, gamma) # prefix to store the data in txt file, will be "_it_
+        collect_data_BH(
             N, 
-            Jx,
-            Jz, 
+            J,
+            V, 
             gamma, 
             optimal, 
             t_end; 
             dissipation=dissipation,
-            h=h,
+            V2=V2,
             tau=tau,
             dt=dt,
             pre=pre,
@@ -190,16 +191,16 @@ function main(args_in)
         # using simple local dissipation
         println("Local dissipation:")
         optimal = false
-        pre = pre_store * @sprintf("_loc_N_%.0f_Jx_%.2f_Jz_%.2f_gamma_%.2f", N, Jx, Jz, gamma) # to store
-        collect_data_XXZ(
+        pre = pre_store * @sprintf("_loc_N_%.0f_J_%.2f_V_%.2f_gamma_%.2f", N, J, V, gamma) # to store
+        collect_data_BH(
             N, 
-            Jx,
-            Jz, 
+            J,
+            V, 
             gamma, 
             optimal, 
             t_end; 
             dissipation=dissipation,
-            h=h,
+            V2=V2,
             tau=tau,
             dt=dt,
             pre=pre,
