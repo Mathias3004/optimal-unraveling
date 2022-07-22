@@ -26,6 +26,8 @@ Manifest.toml
 # ignore this
 old.jl
 /shit
+*slurm*
+*store*
 
 # ignore all data .txt files
 *.txt

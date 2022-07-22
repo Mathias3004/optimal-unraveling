@@ -135,53 +135,82 @@ function main(args_in)
     dir = args_in[6]
     
     # fixed params
-    Jx = -1. # Jx coupling (flip flop) set to unity (ferromagnetic)
+    Jx = -1. # Jx coupling (flip flop)
     dissipation = "Sz" # the type of dissipation
     
-    t_end = 500. # the total time to evolve
+    t_end = 20. # the total time to evolve
     tau = 1. # the time step to collect data
-    dt = 0.02 # differential time step for integration
+    dt = 0.05 # differential time step for integration
     
-    pre_store = dir * "/dat__opt_" * optimization # the folder + prefix where to store data
+    pre_store = dir * "/dat_" # the folder + prefix where to store data
+    
+    n_runs = 2 # number of times you want to generate the same trajectories. Each run nworkers samples are collected and saved
     
     # variables to track and save
     d_tracks = Dict{String,Any}(
         "track_states" => false, # whether to save all the sampled states (better not for memory!)
         "track_maxdim" => true, # track maxdim in MPS
         "track_entropy" => true, # save entropy profile at each time step
-        "track_local_observables" => ["Sz"] # profile of local observables to save at each time step
+        "track_local_observables" => ["Sz"] # profile of local observables to to save at each time step
     )
     
     # controls for MPS
     d_controls = Dict{String,Any}(
-        "maxdim" => 1000, # max bond dim during simulation
+        "maxdim" => 700, # max bond dim during simulation
         "cutoff" => 1E-8, # sv cutoff
         "conserve_qns" => true # U(1) symmetry from particle conservation (e.g. with Sz dissipation) or not, more efficient simulation
     )
     
-    # run parallel trajectories on number of available workers
-    println("Collecting data points:")
-    optimal = optimization
-    pre = pre_store * @sprintf("_N_%.0f_Jx_%.2f_Jz_%.2f_gamma_%.2f", N, Jx, Jz, gamma) # prefix to store the data in txt file, will be "_it_
-    collect_data_XXZ(
-        N, 
-        Jx,
-        Jz, 
-        gamma, 
-        optimal, 
-        t_end; 
-        dissipation=dissipation,
-        h=h,
-        tau=tau,
-        dt=dt,
-        pre=pre,
-        d_tracks=d_tracks,
-        d_controls=d_controls,
-        verbose=1,
-        append=false
-    )
+    # run parallel trajectories on number of available workers and loop over number of runs to collect
+    for i_n = 1:n_runs
+        println("\nCollecting run $(i_n)/$(n_runs):\n")
+        append = i_n != 1 # set first run to write (start new files), append to files in next runs to collect more samples
         
- 
+        # using 2x2 optimized jump clicks
+        println("Optimized dissipation:")
+        optimal = optimization
+        pre = pre_store * @sprintf("_opt_N_%.0f_Jx_%.2f_Jz_%.2f_gamma_%.2f", N, Jx, Jz, gamma) # prefix to store the data in txt file, will be "_it_
+        collect_data_XXZ(
+            N, 
+            Jx,
+            Jz, 
+            gamma, 
+            optimal, 
+            t_end; 
+            dissipation=dissipation,
+            h=h,
+            tau=tau,
+            dt=dt,
+            pre=pre,
+            d_tracks=d_tracks,
+            d_controls=d_controls,
+            verbose=1,
+            append=append
+        )
+        
+        # using simple local dissipation
+        println("Local dissipation:")
+        optimal = "None"
+        pre = pre_store * @sprintf("_loc_N_%.0f_Jx_%.2f_Jz_%.2f_gamma_%.2f", N, Jx, Jz, gamma) # to store
+        collect_data_XXZ(
+            N, 
+            Jx,
+            Jz, 
+            gamma, 
+            optimal, 
+            t_end; 
+            dissipation=dissipation,
+            h=h,
+            tau=tau,
+            dt=dt,
+            pre=pre,
+            d_tracks=d_tracks,
+            d_controls=d_controls,
+            verbose=1,
+            append=append
+        )
+    end
+    
 end
 
 # set main() as standard function to run if not specified otherwise

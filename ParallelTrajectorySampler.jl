@@ -1,5 +1,6 @@
 # set number of workers to number of available threads
  @everywhere begin
+    using Revise
     using OptimalTrajectorySampler
     using ITensors
 end
@@ -9,7 +10,7 @@ function collect_trajectories_synchronized(
     psi::MPS,
     t_end::Float64,
     tau::Float64,
-    optimal::Bool;
+    optimal::String;
     d_tracks::Dict{String, Any}=Nothing,
     verbose::Int64=1,
     n_samples::Int64=-1,
@@ -57,6 +58,8 @@ function collect_trajectories_synchronized(
     # loop over all time steps to collect
     for i in 1:n_steps
         
+        t_start = time()
+        
         # update psi on all threads and collect data, prepare prefix for data saving
         if verbose > 0
             print("\nStep $(i)/$(n_steps)...\t")
@@ -87,7 +90,8 @@ function collect_trajectories_synchronized(
         end
 
         if verbose > 0
-            print("done")
+            t_elapsed = time() - t_start
+            print("done in $(t_elapsed)s")
         end
     end
     if verbose > 0

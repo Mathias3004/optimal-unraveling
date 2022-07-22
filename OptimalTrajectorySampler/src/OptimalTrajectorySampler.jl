@@ -7,6 +7,7 @@ export TE_data, step_and_collect, dump_data
 using ITensors 
 using Optim
 using DelimitedFiles
+using Statistics
 
 include("FunctionsData.jl") # functions to process/save data
 include("FunctionsMPS.jl") # general MPS functions (such as entanglement)
@@ -31,7 +32,7 @@ function step_and_collect(
     psi::MPS,
     ted::TE_data,
     tau::Float64, 
-    optimal::Bool,
+    optimal::String,
     d_tracks::Dict{String,Any}
     )::Tuple{MPS,Dict{String,Any}}
     """Exported function: evolve psi over time tau using ted, optimized or not, 
@@ -61,7 +62,7 @@ function collect_jump_probabilities(
     return pc
 end
 
-function get_average_click_entropy(psi::MPS, ct1::ITensor, ct2::ITensor, i::Int64)::Float64
+function get_average_click_entropy_local(psi::MPS, ct1::ITensor, ct2::ITensor, i::Int64)::Float64
     """Find average value of entropy in psi of applying one of two clicks ct1 or ct2 across bond i"""
     
     # apply jumps to psi
@@ -78,8 +79,21 @@ function get_average_click_entropy(psi::MPS, ct1::ITensor, ct2::ITensor, i::Int6
     return p1*entropy_von_neumann!(psi1, i) + p2*entropy_von_neumann!(psi2, i)
 end
 
-function select_and_apply(psi::MPS, c1::ITensor, c2::ITensor)::MPS
-    """Given two jumps c1 and c2, slect which one to apply to psi"""
+function get_average_click_entropy_global(psi::MPS,ct1::ITensor,ct2::ITensor)::Float64
+    # apply jumps to psi
+    psi1 = apply(ct1, psi)
+    psi2 = apply(ct2, psi)
+    
+    # get probabilities jumps
+    p1 = norm(psi1)^2
+    p2 = norm(psi2)^2
+    
+    return p1*mean(entropy_profile(psi1)) + p2*mean(entropy_profile(psi2))
+end
+    
+
+function select_and_apply(psi::MPS, c1::ITensor, c2::ITensor; jump_threshold::Float64=1e-3)::MPS
+    """Given two jumps c1 and c2, select which one to apply to psi"""
     
     # apply jumps to psi
     psi1 = apply(c1, psi)
@@ -89,14 +103,14 @@ function select_and_apply(psi::MPS, c1::ITensor, c2::ITensor)::MPS
     p1 = norm(psi1)^2
     p2 = norm(psi2)^2
     
-    if p1 > (p1+p2)*rand(Float64)
+    if p1 > (p1+p2)*max(rand(Float64), jump_threshold)
         return normalize!(psi1)
     else
         return normalize!(psi2)
     end
 end
 
-function apply_optimal_jump(psi::MPS, ted::TE_data, i::Int64)::MPS
+function apply_optimal_jump(psi::MPS, ted::TE_data, i::Int64, optimal::String)::MPS
     """two operators with inds i and i+1, determine optimal rotation (unitary) matrix to mix 
     c_i and c_{i+1} to minimize average entanglement after click using gradient descent"""
     
@@ -115,7 +129,12 @@ function apply_optimal_jump(psi::MPS, ted::TE_data, i::Int64)::MPS
         phi = pars[2]
         ct1 = cos(theta)*c1 + exp(im*phi)*sin(theta)*c2
         ct2 = -exp(-im*phi)*sin(theta)*c1 + cos(theta)*c2
-        return get_average_click_entropy(psi,ct1,ct2,i)
+        
+        if optimal == "global"
+            return get_average_click_entropy_global(psi,ct1,ct2)
+        else
+            return get_average_click_entropy_local(psi,ct1,ct2,i)
+        end
     end
     # optimization and find optimal theta, phi
     res = optimize(varS, [0.0, 0.0])
@@ -133,7 +152,8 @@ end
 function select_and_apply_jumps!(
         ted::TE_data,
         psi::MPS;
-        optimal::Bool=false)
+        optimal::String="local",
+        jump_threshold::Float64=1e-3)
     """Sample which jumps click and apply them or perform non-Hermitian evolution. 
     Option optimal specifies whether 2x2 optimal U are obtained to minimize entanglement across bond, otherwise direct jump clicks"""
     
@@ -141,7 +161,8 @@ function select_and_apply_jumps!(
     pc = ted.dt*collect_jump_probabilities(psi, ted.cdc_gates)
     
     
-    if optimal # compute optimal mixing angles
+    if optimal != "none" # perform optimization for jumps 
+    
         # random offset of mixing 2x2
         offset = mod(rand(Int64), 2)
         L = length(psi)
@@ -159,12 +180,13 @@ function select_and_apply_jumps!(
         iter = mod(rand(Int64), 2)==0 ? ((offset+1):2:(L-1)) : reverse((offset+1):2:(L-1))
         for i in iter
             orthogonalize!(psi,i)
-            # two jumps
-            if pc[i]*pc[i+1] > rand(Float64)
-                psi = apply(ted.c_gates[i:i+1], psi)
+            # two jumps (taken out, might cause numerical problems: probabilities calculated independently (linear) but here non-linear. 
+            # First jump might obstruct second, resulting in nearly zero norm after application.)
+            #if pc[i]*pc[i+1] > rand(Float64)
+            #    psi = apply(ted.c_gates[i:i+1], psi)
             # one jump
-            elseif pc[i] + pc[i+1] > rand(Float64)
-                psi = apply_optimal_jump(psi, ted, i)
+            if pc[i] + pc[i+1] > max(rand(Float64), 2. *jump_threshold*ted.dt) # apply jump threshold to avoid ending up with nearly zero norm after applying jump
+                psi = apply_optimal_jump(psi, ted, i, optimal)
             # no jump
             else
                 psi = apply(ted.Hcdc_gates[i:i+1],psi)
@@ -173,9 +195,10 @@ function select_and_apply_jumps!(
             normalize!(psi)
         end
         
-    else # just do direct jumps
+    else # just do direct jumps, no optimization
+    
         for (i,p) in enumerate(pc)
-            if p > rand(Float64)
+            if p > max(rand(Float64), jump_threshold*ted.dt)
                 psi = apply(ted.c_gates[i], psi; cutoff=ted.cutoff, maxdim=ted.maxdim)
             else
                 psi = apply(ted.Hcdc_gates[i], psi; cutoff=ted.cutoff, maxdim=ted.maxdim)  
@@ -221,7 +244,7 @@ function sample_time_step(
         psi::MPS, # state coming in
         ted::TE_data, # data for time evolution
         tau::Float64; # time to integrate
-        optimal::Bool=false # run optimal trajectory
+        optimal::String="local" # run optimal trajectory
         )::MPS
     """Evaluate a differential time step on psi. Both unitary and dissipative evolution"""
     

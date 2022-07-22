@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# number of nodes
+#SBATCH -N 1
+
+# cores per node
+#SBATCH --ntasks-per-node=128
+
+# modules
+module load julia
+
+# run command
+echo "${1} ${2} ${3} ${4} ${5} ${6} ${7}"
+julia -p 128 --sysimage /jet/home/mathvr/.julia/sysimages/sys_itensors.so ${1} ${2} ${3} ${4} ${5} ${6} ${7}

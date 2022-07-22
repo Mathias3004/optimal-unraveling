@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# time for each run in loop
+t="12:00:00"
+
+# script to run (choose XXZ or BH)
+script=run_XXZ_trajectories.jl
+
+# fixed params XXZ: (Jz,h), BH: (V2,mu)
+par1=0.
+par2=0.
+
+# folder to save
+path_store="store_XXZ_t_500"
+
+# count number of jobs submitted
+count=0
+
+for ((N=20; N>=8; N-=4)) 
+do
+    for gamma in $(seq 3.4 .4 5.)
+    do
+        for optimal in none local
+        do
+
+            sbatch --time=$t single_submit $script $N $gamma $par1 $par2 $optimal $path_store
+            echo "sbatch --time=$t single_submit $script $N $gamma $par1 $par2 $optimal $path_store"
+        done
+            
+        count=$((count+1))
+    done
+done
+
+echo "$count jobs submitted"
