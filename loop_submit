@@ -11,14 +11,14 @@ par1=0.
 par2=0.
 
 # folder to save
-path_store="store_XXZ_t_500"
+path_store="store_XXZ_t_500_projUp"
 
 # count number of jobs submitted
 count=0
 
 for ((N=20; N>=8; N-=4)) 
 do
-    for gamma in $(seq 3.4 .4 5.)
+    for gamma in $(seq .2 .4 5.)
     do
         for optimal in none local
         do

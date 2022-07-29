@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# input: 1:jl_script 2:N 3:gamma 4:Jz 5:h 6:optim 7:dir_to_save
+# e.g. sbatch -t 12:00:00 single_submit run_XXZ_trajectories.jl 16 .2 0. 0. local store_XXZ_t_500_Sz
+
 # number of nodes
 #SBATCH -N 1
 

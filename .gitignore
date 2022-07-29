@@ -28,6 +28,7 @@ old.jl
 /shit
 *slurm*
 *store*
+figs/
 
 # ignore all data .txt files
 *.txt
