@@ -62,7 +62,7 @@ function collect_jump_probabilities(
     return pc
 end
 
-function get_average_click_entropy_local(psi::MPS, ct1::ITensor, ct2::ITensor, i::Int64)::Float64
+function get_average_click_entropy_local(psi::MPS, ct1::ITensor, ct2::ITensor, i::Int64; jump_threshold::Float64=1e-3)::Float64
     """Find average value of entropy in psi of applying one of two clicks ct1 or ct2 across bond i"""
     
     # apply jumps to psi
@@ -74,9 +74,16 @@ function get_average_click_entropy_local(psi::MPS, ct1::ITensor, ct2::ITensor, i
     p2 = norm(psi2)^2
     
     # evaluate entanglement outcomes
-    orthogonalize!(psi1,i)
-    orthogonalize!(psi2,i)
-    return p1*entropy_von_neumann!(psi1, i) + p2*entropy_von_neumann!(psi2, i)
+    cost = 0.
+    if p1 > jump_threshold
+        cost += p1*entropy_von_neumann!(orthogonalize!(psi1,i), i)
+    end
+    
+    if p2 > jump_threshold
+        cost += p2*entropy_von_neumann!(orthogonalize!(psi2,i), i)
+    end
+    
+    return cost
 end
 
 function get_average_click_entropy_global(psi::MPS,ct1::ITensor,ct2::ITensor)::Float64
@@ -110,7 +117,7 @@ function select_and_apply(psi::MPS, c1::ITensor, c2::ITensor; jump_threshold::Fl
     end
 end
 
-function apply_optimal_jump(psi::MPS, ted::TE_data, i::Int64, optimal::String)::MPS
+function apply_optimal_jump(psi::MPS, ted::TE_data, i::Int64, optimal::String; jump_threshold::Float64=1e-3)::MPS
     """two operators with inds i and i+1, determine optimal rotation (unitary) matrix to mix 
     c_i and c_{i+1} to minimize average entanglement after click using gradient descent"""
     
@@ -133,7 +140,7 @@ function apply_optimal_jump(psi::MPS, ted::TE_data, i::Int64, optimal::String)::
         if optimal == "global"
             return get_average_click_entropy_global(psi,ct1,ct2)
         else
-            return get_average_click_entropy_local(psi,ct1,ct2,i)
+            return get_average_click_entropy_local(psi,ct1,ct2,i; jump_threshold)
         end
     end
     # optimization and find optimal theta, phi
@@ -162,7 +169,7 @@ function select_and_apply_jumps!(
     
     
     if optimal != "none" # perform optimization for jumps 
-    
+        
         # random offset of mixing 2x2
         offset = mod(rand(Int64), 2)
         L = length(psi)
@@ -186,7 +193,7 @@ function select_and_apply_jumps!(
             #    psi = apply(ted.c_gates[i:i+1], psi)
             # one jump
             if pc[i] + pc[i+1] > max(rand(Float64), 2. *jump_threshold*ted.dt) # apply jump threshold to avoid ending up with nearly zero norm after applying jump
-                psi = apply_optimal_jump(psi, ted, i, optimal)
+                psi = apply_optimal_jump(psi, ted, i, optimal; jump_threshold)
             # no jump
             else
                 psi = apply(ted.Hcdc_gates[i:i+1],psi)
@@ -196,12 +203,27 @@ function select_and_apply_jumps!(
         end
         
     else # just do direct jumps, no optimization
-    
+        last_p = 0.
+        last_norm_prev = 0.
+        last_norm = 0.
         for (i,p) in enumerate(pc)
             if p > max(rand(Float64), jump_threshold*ted.dt)
+                last_norm_prev = norm(psi)
                 psi = apply(ted.c_gates[i], psi; cutoff=ted.cutoff, maxdim=ted.maxdim)
+                last_p = p
+                last_norm = norm(psi)
             else
-                psi = apply(ted.Hcdc_gates[i], psi; cutoff=ted.cutoff, maxdim=ted.maxdim)  
+                try
+                    psi = apply(ted.Hcdc_gates[i], psi; cutoff=ted.cutoff, maxdim=ted.maxdim)  
+                catch e
+                    println(i)
+                    println("last norm psi is $(last_norm_prev)")
+                    println("last norm psi is $(last_norm)")
+                    println("last p is $last_p")
+                    println(pc)
+                    rethrow(e)
+                end
+                    
             end
             normalize!(psi)
         end
@@ -254,8 +276,15 @@ function sample_time_step(
     t_evolve = 0.
     while t_evolve < tau - dt/2.
         # apply Hamiltonian evolution
-        psi = apply(ted.H_gates, psi; ted.cutoff, ted.maxdim)
-        normalize!(psi)
+        #norm = norm(psi)
+        try
+            psi = apply(ted.H_gates, psi; ted.cutoff, ted.maxdim)
+            normalize!(psi)
+        catch e
+            
+            println("norm psi is $(norm(psi))")
+            rethrow(e)
+        end
         
         # select and apply jumps
         psi = select_and_apply_jumps!(ted, psi; optimal)

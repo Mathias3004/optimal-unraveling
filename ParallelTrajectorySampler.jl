@@ -1,6 +1,6 @@
 # set number of workers to number of available threads
  @everywhere begin
-    using Revise
+   # using Revise
     using OptimalTrajectorySampler
     using ITensors
 end

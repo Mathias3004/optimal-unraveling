@@ -136,7 +136,7 @@ function main(args_in)
     
     # fixed params
     Jx = -1. # Jx coupling (flip flop) set to unity (ferromagnetic)
-    dissipation = "Sz" # the type of dissipation
+    dissipation = "projUp" # the type of dissipation
     
     t_end = 500. # the total time to evolve
     tau = 1. # the time step to collect data
