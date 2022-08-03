@@ -8,6 +8,7 @@ using ITensors
 using Optim
 using DelimitedFiles
 using Statistics
+using Random
 
 include("FunctionsData.jl") # functions to process/save data
 include("FunctionsMPS.jl") # general MPS functions (such as entanglement)
@@ -61,6 +62,14 @@ function collect_jump_probabilities(
         
     return pc
 end
+
+#function expectation_value_local(psi::MPS, c::ITensor)::Float64
+#    """Evaluate expectation value for probability. psi: actual state, orthogonalized to where local jump c is to be applied."""
+    
+#    normalize(psi)
+        
+#    return norm(apply(c,psi))^2
+#end
 
 function get_average_click_entropy_local(psi::MPS, ct1::ITensor, ct2::ITensor, i::Int64; jump_threshold::Float64=1e-3)::Float64
     """Find average value of entropy in psi of applying one of two clicks ct1 or ct2 across bond i"""
@@ -160,39 +169,50 @@ function select_and_apply_jumps!(
         ted::TE_data,
         psi::MPS;
         optimal::String="local",
-        jump_threshold::Float64=1e-3)
+        jump_threshold::Float64=1e-3,
+        random_shuffle::Bool=false)
     """Sample which jumps click and apply them or perform non-Hermitian evolution. 
     Option optimal specifies whether 2x2 optimal U are obtained to minimize entanglement across bond, otherwise direct jump clicks"""
     
-    # collect probabilities for each site to click
-    pc = ted.dt*collect_jump_probabilities(psi, ted.cdc_gates)
-    
+    L = length(psi)
     
     if optimal != "none" # perform optimization for jumps 
-        
-        # random offset of mixing 2x2
-        offset = mod(rand(Int64), 2)
-        L = length(psi)
+    
+        offset = mod(rand(Int64), 2) # start from site 1 or 2
         
         # check boundaries and apply direct jumps at edges if required
-        if offset == 1 && pc[1] > rand(Float64)
-            psi = apply(ted.c_gates[1], psi)
-        end
-        if mod(L-offset,2) == 1 && pc[end] > rand(Float64)
-            psi = apply(ted.c_gates[end], psi)
-        end
-        normalize!(psi)
         
-        # loop through chain, per two sites, starting from offset (c_i and c_{i+1} will be mixed)
-        iter = mod(rand(Int64), 2)==0 ? ((offset+1):2:(L-1)) : reverse((offset+1):2:(L-1))
+        # first site
+        if offset == 1
+            psi_test = apply(ted.c_gates[1], psi)
+            p = ted.dt*norm(psi_test)^2
+            if p > max(rand(Float64), jump_threshold*ted.dt)
+                psi = normalize(psi_test)
+            end
+        end
+        
+        # last site
+        if mod(L-offset,2) == 1
+            psi_test = apply(ted.c_gates[end], psi)
+            p = ted.dt*norm(psi_test)^2
+            if p > max(rand(Float64), jump_threshold*ted.dt)
+                psi = normalize(psi_test)
+            end
+        end
+        
+        # loop through chain, per two sites, starting from offset (c_i and c_{i+1} will be mixed) with random shuffle of jump interval order
+        iter = collect((offset+1):2:(L-1))
+        if random_shuffle
+            iter = shuffle(iter)
+        end
+        
         for i in iter
             orthogonalize!(psi,i)
-            # two jumps (taken out, might cause numerical problems: probabilities calculated independently (linear) but here non-linear. 
-            # First jump might obstruct second, resulting in nearly zero norm after application.)
-            #if pc[i]*pc[i+1] > rand(Float64)
-            #    psi = apply(ted.c_gates[i:i+1], psi)
-            # one jump
-            if pc[i] + pc[i+1] > max(rand(Float64), 2. *jump_threshold*ted.dt) # apply jump threshold to avoid ending up with nearly zero norm after applying jump
+            p_i = ted.dt*norm(apply(ted.c_gates[i], psi))^2 # p click on site i
+            p_ip = ted.dt*norm(apply(ted.c_gates[i], psi))^2 # p click on site i+1
+            
+            # check if the two sites 'click' or not (to linear order)
+            if p_i + p_ip > max(rand(Float64), 2. *jump_threshold*ted.dt) # apply jump threshold to avoid ending up with nearly zero norm after applying jump
                 psi = apply_optimal_jump(psi, ted, i, optimal; jump_threshold)
             # no jump
             else
@@ -203,27 +223,21 @@ function select_and_apply_jumps!(
         end
         
     else # just do direct jumps, no optimization
-        last_p = 0.
-        last_norm_prev = 0.
-        last_norm = 0.
-        for (i,p) in enumerate(pc)
+    
+        iter = collect(1:L)
+        if random_shuffle
+            iter = shuffle(iter)
+        end
+        
+        normalize!(psi)
+        for i in iter
+            psi_test = apply(ted.c_gates[i],psi)
+            p = ted.dt*norm(psi_test)^2
+            
             if p > max(rand(Float64), jump_threshold*ted.dt)
-                last_norm_prev = norm(psi)
-                psi = apply(ted.c_gates[i], psi; cutoff=ted.cutoff, maxdim=ted.maxdim)
-                last_p = p
-                last_norm = norm(psi)
+                psi = normalize(psi_test)
             else
-                try
-                    psi = apply(ted.Hcdc_gates[i], psi; cutoff=ted.cutoff, maxdim=ted.maxdim)  
-                catch e
-                    println(i)
-                    println("last norm psi is $(last_norm_prev)")
-                    println("last norm psi is $(last_norm)")
-                    println("last p is $last_p")
-                    println(pc)
-                    rethrow(e)
-                end
-                    
+                psi = apply(ted.Hcdc_gates[i], psi; cutoff=ted.cutoff, maxdim=ted.maxdim)  
             end
             normalize!(psi)
         end
@@ -281,7 +295,6 @@ function sample_time_step(
             psi = apply(ted.H_gates, psi; ted.cutoff, ted.maxdim)
             normalize!(psi)
         catch e
-            
             println("norm psi is $(norm(psi))")
             rethrow(e)
         end
