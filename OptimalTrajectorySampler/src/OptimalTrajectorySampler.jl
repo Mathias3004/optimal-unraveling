@@ -216,7 +216,7 @@ function select_and_apply_jumps!(
                 psi = apply_optimal_jump(psi, ted, i, optimal; jump_threshold)
             # no jump
             else
-                psi = apply(ted.Hcdc_gates[i:i+1],psi)
+                psi = apply(ted.Hcdc_gates[i:i+1], psi)
             end
             
             normalize!(psi)

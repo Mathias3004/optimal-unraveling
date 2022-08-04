@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # time for each run in loop
-t="12:00:00"
+t="02:00:00"
 
 # script to run (choose XXZ or BH)
 script=run_XXZ_trajectories.jl
@@ -25,9 +25,8 @@ do
 
             sbatch --time=$t single_submit $script $N $gamma $par1 $par2 $optimal $path_store
             echo "sbatch --time=$t single_submit $script $N $gamma $par1 $par2 $optimal $path_store"
+            count=$((count+1))
         done
-            
-        count=$((count+1))
     done
 done
 
