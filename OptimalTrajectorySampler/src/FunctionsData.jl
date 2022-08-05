@@ -12,7 +12,7 @@ function dict_invert(d_in::Array{Dict{String,Any},1})::Dict{String,Any}
         end
     end
     
-    #d_return = Dict(name => hcat(d_return[name]) for name in ks)
+    #d_return = Dict(name => hcat(d_return[name]) for name in ks)))
     
     return d_return
 end
