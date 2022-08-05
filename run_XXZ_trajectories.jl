@@ -149,7 +149,8 @@ function main(args_in)
         "track_states" => false, # whether to save all the sampled states (better not for memory!)
         "track_maxdim" => true, # track maxdim in MPS
         "track_entropy" => true, # save entropy profile at each time step
-        "track_local_observables" => ["Sz"] # profile of local observables to save at each time step
+        "track_local_observables" => [], # profile of local observables to save at each time step
+        "track_correlations" => [["Sz","Sz", true]] # correlation matrix to save, last entry whether hermitian
     )
     
     # controls for MPS

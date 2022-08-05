@@ -273,6 +273,12 @@ function collect_properties(
         end
     end
     
+    if length(d_tracks["track_correlations"]) != 0
+    for obs in d_tracks["track_correlations"]
+            data["c_"*obs[1]*"_"*obs[2]] = abs.(correlation_matrix(psi, obs[1],obs[2], ishermitian=obs[3]))
+        end
+    end
+    
     return data
 end
            

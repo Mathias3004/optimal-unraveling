@@ -22,8 +22,18 @@ function dump_data(d_collect::Dict{String,Any}, prefix::String; write_append::St
     ks = keys(d_collect)
     
     for key in ks
+        # filename to save
         filename = prefix * "_" * key * ".txt"
-        data = transpose(d_collect[key]) # transpose to write arrays as rows in txt file (so each row is a collected sample)
+        
+        # the collected data
+        data = d_collect[key]
+        
+        # if data is array, make sure it is in right shape to dump at end of file     
+        if typeof(data) <: Array
+            data = reshape(data,1,:) # such that 2D correlators data become flat and data fits for dumping in txt files
+        end
+        
+        # write to file
         open(filename, write_append) do io
             writedlm(io, data)
         end

@@ -77,7 +77,7 @@ function collect_trajectories_synchronized(
             print("dumping data...\t")
         end
         for ip in workers()
-            # check whether to append or not (only first worker worker, the rest is always mode)
+            # check whether to append or not (only first worker worker, the rest is always append)
             if ip==workers()[1] && !append
                 write_append = "w"
             else
