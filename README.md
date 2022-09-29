@@ -25,16 +25,16 @@ Parameters to specify:
 First, make folder to store: `mkdir data`.
 Then, from command line: 
 ```
-julia -p 128 --sysimage /jet/home/mathvr/.julia/sysimages/sys_itensors.so run_XXZ_trajectories.jl 20 1. 0. 0. local data
+julia -p 4 --sysimage /jet/home/mathvr/.julia/sysimages/sys_itensors.so run_XXZ_trajectories.jl 20 1. 0. 0. local data
 ```
 
-OR open REPL `julia -p 128 --sysimage /jet/home/mathvr/.julia/sysimages/sys_itensors.so` and run:
+OR open REPL `julia -p 4 --sysimage /jet/home/mathvr/.julia/sysimages/sys_itensors.so` and run:
 ```
 include("initialize_REPL.jl")
 main(["20", "1.", "0.", "0.", "local", "data"])
 ```
 
-This runs 128 parallel trajectories for t=[0,500] of size N=20, gamma=1., Jz=h=0. with local 2x2 optimization and stores results as .txt files in data/ (make sure dir 'data' exists), using precompiled itensor module.
+This runs 4 parallel trajectories for t=[0,500] of size N=20, gamma=1., Jz=h=0. with local 2x2 optimization and stores results as .txt files in data/ (make sure dir 'data' exists), using precompiled itensor module.
 
 ### single_submit, loop_submit
 bash scripts to submit a single slurm job (single_submit) or a series of jobs (loop_submit) by calling singe_submit for various parameters.
