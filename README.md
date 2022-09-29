@@ -32,7 +32,7 @@ Once the data have been collected, they are read in and analyzed with a number p
 ### generate_dataset.ipynb
 Collect all the text files in a directory for some quantity (e.g entropy S) and save as .pickle for later analysis.
 
-### analyze dataset.ipynb
+### analyze_dataset.ipynb
 Read in the generated .pickle file and perforn analysis of obtained results by averaging over the obtained trajectories and make some plots of the scaling.
 
 
